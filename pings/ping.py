@@ -57,34 +57,34 @@ class Ping():
         packed), but this works.
         Network data is big-endian, hosts are typically little-endian
         """
-        countTo = (int(len(source_string)/2))*2
+        count_to = (int(len(source_string)/2))*2
         sum = 0
         count = 0
 
         # Handle bytes in pairs (decoding as short ints)
-        loByte = 0
-        hiByte = 0
-        while count < countTo:
+        lo_byte = 0
+        hi_byte = 0
+        while count < count_to:
             if (sys.byteorder == "little"):
-                loByte = source_string[count]
-                hiByte = source_string[count + 1]
+                lo_byte = source_string[count]
+                hi_byte = source_string[count + 1]
             else:
-                loByte = source_string[count + 1]
-                hiByte = source_string[count]
+                lo_byte = source_string[count + 1]
+                hi_byte = source_string[count]
             try:     # For Python3
-                sum = sum + (hiByte * 256 + loByte)
+                sum = sum + (hi_byte * 256 + lo_byte)
             except:  # For Python2
-                sum = sum + (ord(hiByte) * 256 + ord(loByte))
+                sum = sum + (ord(hi_byte) * 256 + ord(lo_byte))
             count += 2
 
         # Handle last byte if applicable (odd-number of bytes)
         # Endianness should be irrelevant in this case
-        if countTo < len(source_string): # Check for odd length
-            loByte = source_string[len(source_string)-1]
+        if count_to < len(source_string): # Check for odd length
+            lo_byte = source_string[len(source_string)-1]
             try:      # For Python3
-                sum += loByte
+                sum += lo_byte
             except:   # For Python2
-                sum += ord(loByte)
+                sum += ord(lo_byte)
 
         sum &= 0xffffffff # Truncate sum to 32 bits (a variance from ping.c, which
                           # uses signed ints, but overflow is unlikely in ping)
