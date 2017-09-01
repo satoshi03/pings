@@ -2,7 +2,7 @@
 
 Simple ping client in Python 3 by using icmp packet via low level socket.
 
-*Note: this client can only be used by **root** (or admin) user.
+*Note: this client can only be used by **root** (or admin) user.*
 
 ## How to install
 
