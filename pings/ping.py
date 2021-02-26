@@ -8,8 +8,11 @@ import time
 from .response import Response
 from .consts import SUCCESS, FAILED
 
+__updated__ = "2021-02-25 11:09:56"
 
-if sys.platform.startswith("win32"):
+# source code URL: https://github.com/satoshi03/pings/blob/master/pings/ping.py
+
+if (sys.version_info < (3, 3)) and sys.platform.startswith("win32"):
     timer = time.clock
 else:
     timer = time.time
@@ -17,9 +20,9 @@ else:
 
 class Ping():
 
-    def __init__(self, timeout=1000, packet_size=55, own_id=None, udp=False, bind=None, quiet=True):
+    def __init__(self, timeout=1000, packet_data_size=55, own_id=None, udp=False, bind=None, quiet=True):
         self.timeout = timeout
-        self.packet_size = packet_size
+        self.packet_data_size = packet_data_size
         self.own_id = own_id
         self.udp = udp
         self.bind = bind
@@ -179,7 +182,7 @@ class Ping():
         self.seq_number = 0
         delays = []
 
-        msg = "PING {} ({}): {} data bytes".format(dest, dest_ip, self.packet_size)
+        msg = "PING {} ({}): {} data bytes".format(dest, dest_ip, self.packet_data_size)
         response.messages.append(msg)
         self._echo_message(msg)
 
@@ -212,7 +215,7 @@ class Ping():
                 response.ret_code = Ping.FAILED
                 return response
 
-            receive_time, packet_size, ip, ip_header, icmp_header = self.receive(my_socket)
+            receive_time, packet_data_size, ip, ip_header, icmp_header = self.receive(my_socket)
             my_socket.close()
             delay = self._calc_delay(send_time, receive_time)
 
@@ -224,7 +227,7 @@ class Ping():
                 response.ret_code = FAILED
             else:
                 msg = "{} bytes from {}: icmp_seq={} ttl={} time={:.3f} ms".format(
-                    packet_size,
+                    packet_data_size,
                     ip,
                     self.seq_number,
                     ip_header['ttl'],
@@ -233,9 +236,10 @@ class Ping():
                 response.messages.append(msg)
                 self._echo_message(msg)
                 response.ret_code = SUCCESS
+                response.ttl = ip_header['ttl']
                 delays.append(delay)
 
-            response.packet_size = packet_size
+            response.packet_data_size = packet_data_size
             self.seq_number += 1
 
             self._wait_until_next(delay)
@@ -248,10 +252,15 @@ class Ping():
         response.messages.append(msg)
         self._echo_message(msg)
 
+        response.packet_transmitted = self.seq_number
+        response.packet_received = len(delays)
+        response.packet_loss = self.seq_number - response.packet_received
+        response.packet_loss_percent = response.packet_loss / response.packet_transmitted *100
+
         msg = "{} packets transmitted, {} packets received, {:.1f}% packet loss".format(
-            self.seq_number,
-            len(delays),
-            (self.seq_number - len(delays)) / self.seq_number * 100
+            response.packet_transmitted,
+            response.packet_received,
+            response.packet_loss_percent
         )
         response.messages.append(msg)
         self._echo_message(msg)
@@ -278,6 +287,7 @@ class Ping():
 
     def make_packet(self):
         # Header is type (8), code (8), checksum (16), id (16), sequence (16)
+        # Header size in total is (8+8+16+16+16)/8 = 8 bytes
         checksum = 0
 
         # Make a dummy header with a 0 checksum.
@@ -286,9 +296,9 @@ class Ping():
         )
 
         pad_bytes = []
-        start_val = 0x42
-        for i in range(start_val, start_val + (self.packet_size-8)):
-            pad_bytes += [(i & 0xff)]  # Keep chars in the 0-255 range
+        # start_val = 0x41 # the order of character 'A' in ASCII is 65, and 66 in hex is 0x41
+        for i in range(0, (self.packet_data_size)):
+            pad_bytes += [ 0xa0 + (i & 0xf)]  # Keep chars in the 'a'-'o' range
         data = bytearray(pad_bytes)
 
         checksum = self._checksum(header + data)
@@ -315,6 +325,28 @@ class Ping():
         Returns receive time that is time of packet received, packet size, ip address,
         ip header and icmp header both are formatted in dict.
         If falied to receive packet, returns 0 and None
+
+        According to RFC 791 - Internet Protocol Version 4
+        The struct of IPv4 packet:
+        Internet Header Length (4bits),
+        Type of Service (8bits),
+        Total Length (16bits),
+        Identification (16bits),
+        Flags (3bits),
+        Fragment Offset (13bits),
+        Time To Live (8bits), 
+        Protocol (8bits),
+        Header checksum (16bits),
+        Source Address (32bits),
+        Destination Address (32bits),
+        Options (Variable) Padding (0-24bits)
+        So.The IPv4 packet header length is (4+8+16+16+3+13+8+8+16+32+32)/8 = 20 bytes
+        According to RFC 792 - Internet Control Message Protocol 
+        The struct of ICMP packet:
+        Type (8bits), Code (8bits), Checksum (16bits), ...anything else... (32bits),
+                        Internet Header + 64 bits of Original Data Datagram
+        So.The ICMP packet header length is (8+8+16+32)/8 = 8 bytes
+        Generally,a ICMP over IPv4 packet's data length = len(packet) - (20+8)
         """
         timeout = self.timeout / 1000
         while True:
@@ -332,8 +364,8 @@ class Ping():
             if icmp_header["packet_id"] == self.own_id: # my packet
                 ip_header = self._parse_ip_header(packet)
                 ip = socket.inet_ntoa(struct.pack("!I", ip_header["src_ip"]))
-                packet_size = len(packet) - 28
-                return receive_time, packet_size, ip, ip_header, icmp_header
+                packet_data_size = len(packet) - 28
+                return receive_time, packet_data_size, ip, ip_header, icmp_header
 
             timeout = timeout - select_duration
 
